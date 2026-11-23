@@ -1,0 +1,91 @@
+{
+  "feature_names": [
+    "x.radius_mean",
+    "x.texture_mean",
+    "x.perimeter_mean",
+    "x.area_mean",
+    "x.smoothness_mean",
+    "x.compactness_mean",
+    "x.concavity_mean",
+    "x.concave_pts_mean",
+    "x.symmetry_mean",
+    "x.fractal_dim_mean",
+    "x.radius_se",
+    "x.texture_se",
+    "x.perimeter_se",
+    "x.area_se",
+    "x.smoothness_se",
+    "x.compactness_se",
+    "x.concavity_se",
+    "x.concave_pts_se",
+    "x.symmetry_se",
+    "x.fractal_dim_se",
+    "x.radius_worst",
+    "x.texture_worst",
+    "x.perimeter_worst",
+    "x.area_worst",
+    "x.smoothness_worst",
+    "x.compactness_worst",
+    "x.concavity_worst",
+    "x.concave_pts_worst",
+    "x.symmetry_worst",
+    "x.fractal_dim_worst"
+  ],
+  "defaults": {
+    "x.radius_mean": 13.34,
+    "x.texture_mean": 18.9,
+    "x.perimeter_mean": 86.18,
+    "x.area_mean": 546.4,
+    "x.smoothness_mean": 0.09524,
+    "x.compactness_mean": 0.09228,
+    "x.concavity_mean": 0.0594,
+    "x.concave_pts_mean": 0.03334,
+    "x.symmetry_mean": 0.1799,
+    "x.fractal_dim_mean": 0.0613,
+    "x.radius_se": 0.3274,
+    "x.texture_se": 1.139,
+    "x.perimeter_se": 2.31,
+    "x.area_se": 24.87,
+    "x.smoothness_se": 0.006261,
+    "x.compactness_se": 0.02016,
+    "x.concavity_se": 0.02586,
+    "x.concave_pts_se": 0.01091,
+    "x.symmetry_se": 0.0187,
+    "x.fractal_dim_se": 0.003131,
+    "x.radius_worst": 14.92,
+    "x.texture_worst": 25.48,
+    "x.perimeter_worst": 97.65,
+    "x.area_worst": 683.4,
+    "x.smoothness_worst": 0.1311,
+    "x.compactness_worst": 0.2167,
+    "x.concavity_worst": 0.2298,
+    "x.concave_pts_worst": 0.101,
+    "x.symmetry_worst": 0.2823,
+    "x.fractal_dim_worst": 0.08009
+  },
+  "metrics": {
+    "accuracy": 0.9649,
+    "precision": 1.0,
+    "recall": 0.9048,
+    "f1": 0.95,
+    "confusion_matrix": [
+      [
+        72,
+        0
+      ],
+      [
+        4,
+        38
+      ]
+    ],
+    "test_size": 114,
+    "best_params": {
+      "final_estimator__C": 0.01,
+      "final_estimator__class_weight": "balanced",
+      "final_estimator__solver": "lbfgs"
+    },
+    "best_cv_f1": 0.9675
+  },
+  "sklearn_version": "1.7.2",
+  "trained_with": "train_model.py - same pipeline as Breast_Cancer.ipynb"
+}
