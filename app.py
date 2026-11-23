@@ -412,48 +412,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.vega_lite_chart(
-    {
-        "data": {
-            "values": [
-                {"class": T["benign"], "p": p_benign},
-                {"class": T["malignant"], "p": p_malignant},
-            ]
-        },
-        "mark": {"type": "bar", "height": 38, "cornerRadiusEnd": 8},
-        "encoding": {
-            "y": {
-                "field": "class",
-                "type": "nominal",
-                "title": None,
-                "sort": [T["benign"], T["malignant"]],
-                "axis": {"labelFontSize": 13},
-            },
-            "x": {
-                "field": "p",
-                "type": "quantitative",
-                "title": None,
-                "scale": {"domain": [0, 1]},
-                "axis": {"format": ".0%"},
-            },
-            "color": {
-                "field": "class",
-                "type": "nominal",
-                "scale": {
-                    "domain": [T["benign"], T["malignant"]],
-                    "range": [COLOR_BENIGN, COLOR_MALIGNANT],
-                },
-                "legend": None,
-            },
-            "tooltip": [
-                {"field": "class", "type": "nominal"},
-                {"field": "p", "type": "quantitative", "format": ".1%", "title": "Score"},
-            ],
-        },
-        "height": 150,
-    },
-    use_container_width=True,
-)
+# Render live scores directly in HTML so charts cannot retain an old Vega dataset.
+probability_bars = []
+for label, score, bar_color in [
+    (T["benign"], p_benign, COLOR_BENIGN),
+    (T["malignant"], p_malignant, COLOR_MALIGNANT),
+]:
+    probability_bars.append(
+        f'<div style="display:flex;align-items:center;gap:12px;margin:14px 0;">'
+        f'<span style="width:90px;font-size:13px;">{label}</span>'
+        f'<div style="flex:1;background:#F2F2F5;border-radius:6px;overflow:hidden;">'
+        f'<div style="width:{score * 100:.6f}%;height:36px;background:{bar_color};"></div></div>'
+        f'<span style="width:62px;font-size:13px;">{score * 100:.1f}%</span></div>'
+    )
+st.markdown('<div class="live-probability-chart">' + ''.join(probability_bars) + '</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------ per-model predictions
 base_models, base_metrics = load_base_models()
@@ -534,44 +506,35 @@ if profiles is not None:
             ]
         )
 
-    st.vega_lite_chart(
-        {
-            "data": {"values": rows},
-            "mark": {"type": "bar", "cornerRadiusEnd": 3},
-            "encoding": {
-                "x": {
-                    "field": "feature",
-                    "type": "nominal",
-                    "title": None,
-                    "sort": mean_labels,
-                    "axis": {"labelAngle": -30, "labelFontSize": 12},
-                },
-                "y": {
-                    "field": "value",
-                    "type": "quantitative",
-                    "title": T["y_axis"],
-                    "axis": {"format": ".0%"},
-                },
-                "xOffset": {"field": "series"},
-                "color": {
-                    "field": "series",
-                    "type": "nominal",
-                    "scale": {
-                        "domain": [T["series_input"], T["series_benign"], T["series_malignant"]],
-                        "range": [COLOR_PRIMARY, COLOR_BENIGN, COLOR_MALIGNANT],
-                    },
-                    "legend": {"title": None, "orient": "top"},
-                },
-                "tooltip": [
-                    {"field": "feature", "type": "nominal"},
-                    {"field": "series", "type": "nominal"},
-                    {"field": "value", "type": "quantitative", "format": ".2f", "title": "Relative value"},
-                ],
-            },
-            "height": 300,
-        },
-        use_container_width=True,
-    )
+    # Static SVG is rebuilt from the current values on every Streamlit rerun.
+    chart_width, chart_height = 1000, 380
+    plot_top, plot_bottom = 38, 285
+    plot_height = plot_bottom - plot_top
+    svg = [f'<svg class="live-profile-chart" viewBox="0 0 {chart_width} {chart_height}" '
+           'style="width:100%;height:auto;direction:ltr;" role="img" aria-label="Current sample feature comparison">']
+    palette = [COLOR_PRIMARY, COLOR_BENIGN, COLOR_MALIGNANT]
+    legends = [T["series_input"], T["series_benign"], T["series_malignant"]]
+    for j, (legend, fill) in enumerate(zip(legends, palette)):
+        x = 100 + j * 290
+        svg.append(f'<rect x="{x}" y="5" width="12" height="12" fill="{fill}"/>'
+                   f'<text x="{x + 20}" y="16" font-size="12" direction="ltr" unicode-bidi="plaintext" text-anchor="start" fill="{COLOR_TEXT}">{legend}</text>')
+    for tick in range(6):
+        y = plot_bottom - tick * plot_height / 5
+        svg.append(f'<line x1="48" y1="{y}" x2="990" y2="{y}" stroke="#E5E7EB"/>'
+                   f'<text x="40" y="{y + 4}" text-anchor="end" font-size="11" fill="{COLOR_TEXT}">{tick * 20}%</text>')
+    for i, label in enumerate(mean_labels):
+        center = 94 + i * 94
+        for j in range(3):
+            item = rows[i * 3 + j]
+            value = item["value"]
+            height = value * plot_height
+            x, y = center - 30 + j * 20, plot_bottom - height
+            svg.append(f'<rect x="{x}" y="{y:.3f}" width="18" height="{height:.3f}" fill="{palette[j]}">'
+                       f'<title>{label}: {legends[j]} {value * 100:.1f}%</title></rect>')
+        svg.append(f'<text transform="translate({center - 25},305) rotate(30)" '
+                   f'font-size="11" direction="ltr" unicode-bidi="plaintext" text-anchor="start" fill="{COLOR_TEXT}">{label}</text>')
+    svg.append('</svg>')
+    st.markdown(''.join(svg), unsafe_allow_html=True)
 
 st.markdown(
     f'<div class="footer-note">{T["footer"]}</div>',
