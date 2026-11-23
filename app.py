@@ -621,12 +621,6 @@ def render_notebook_insights():
     st.markdown('<div class="section-title">' + tr(
         "٥ · تحليل البيانات ورؤى النوتبوك", "5 · Data analysis & notebook insights") + '</div>',
         unsafe_allow_html=True)
-    st.caption(tr(
-        "نفس رسومات ونتائج النوتبوك الأصلي، بجانب التوقعات. التحليل هنا للبيانات كاملة، وليس للعينة المدخلة فوق.",
-        "The original notebook's plots and results, alongside predictions. This analysis describes the full dataset, not the sample entered above."))
-    st.info(tr(
-        "مشروع تعليمي فقط، وليس أداة للتشخيص الطبي. نسب التوقع ليست تأكيدًا طبيًا.",
-        "Educational project only, not a medical diagnostic tool. Prediction scores are not medical confirmation."))
     if not NOTEBOOK_PATH.exists() or not Path(DATA_PATH).exists():
         st.warning(tr(
             "لعرض التحليل، ضع Breast_Cancer.ipynb وbrca.csv في نفس مجلد app.py.",
