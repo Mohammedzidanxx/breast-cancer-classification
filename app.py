@@ -2,7 +2,7 @@
 # Streamlit interface for the Breast Cancer Tumor Classification project.
 # Educational demo - NOT a medical diagnostic tool.
 #
-# Single-page app: 30 feature inputs, live prediction and comparison
+# Single-page app: 30 feature inputs, live prediction, notebook insights and comparison
 # graphics on one styled page (no tabs, no button - the prediction
 # recomputes on every input change). Arabic/English language selector
 # with full RTL layout for Arabic.
@@ -11,7 +11,11 @@
 # First run:   python train_model.py      (once, to create the model files)
 # Then start:  streamlit run app.py   (or double-click run_app.bat)
 
+import base64
+import io
 import json
+from html.parser import HTMLParser
+from pathlib import Path
 import os
 
 import joblib
@@ -535,6 +539,220 @@ if profiles is not None:
                    f'font-size="11" direction="ltr" unicode-bidi="plaintext" text-anchor="start" fill="{COLOR_TEXT}">{label}</text>')
     svg.append('</svg>')
     st.markdown(''.join(svg), unsafe_allow_html=True)
+
+# ------------------------------------------------------------ notebook insights
+# Original notebook outputs are read locally, never executed or refitted.
+# No plotting packages or new assets are required. Keep Breast_Cancer.ipynb
+# and brca.csv beside app.py, as they already are in the project repository.
+NOTEBOOK_PATH = Path(__file__).resolve().parent / "Breast_Cancer.ipynb"
+
+
+class NotebookTableParser(HTMLParser):
+    """Read the saved pandas table output without an HTML-parser dependency."""
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self.row = None
+        self.cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self.row = []
+        elif tag in ("td", "th") and self.row is not None:
+            self.cell = []
+
+    def handle_data(self, data):
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self.cell is not None:
+            self.row.append("".join(self.cell).strip())
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+
+
+@st.cache_data
+def load_notebook_insights():
+    with NOTEBOOK_PATH.open(encoding="utf-8") as handle:
+        notebook = json.load(handle)
+    plots, tables = {}, {}
+    # These are zero-based cells in the project's original notebook.
+    for index in (4, 6, 7, 9, 11, 46, 49, 51):
+        for output in notebook["cells"][index].get("outputs", []):
+            encoded = output.get("data", {}).get("image/png")
+            if encoded:
+                plots[index] = base64.b64decode("".join(encoded) if isinstance(encoded, list) else encoded)
+    for index in (21, 23, 26, 29, 32, 35, 39, 40, 41, 48):
+        for output in notebook["cells"][index].get("outputs", []):
+            html = output.get("data", {}).get("text/html")
+            if html:
+                parser = NotebookTableParser()
+                parser.feed("".join(html) if isinstance(html, list) else html)
+                if parser.rows and len(parser.rows) > 1:
+                    header, *body = parser.rows
+                    # First column is pandas' saved row index, not a feature.
+                    frame = pd.DataFrame([r[1:] for r in body], columns=header[1:])
+                    for column in frame.columns:
+                        if column != "Model":
+                            try:
+                                frame[column] = pd.to_numeric(frame[column])
+                            except (ValueError, TypeError):
+                                pass
+                    if index == 40:
+                        frame.insert(0, "Statistic", [r[0] for r in body])
+                    tables[index] = frame
+    return plots, tables
+
+
+@st.cache_data
+def load_analysis_data():
+    return pd.read_csv(Path(__file__).resolve().parent / DATA_PATH)
+
+
+def render_notebook_insights():
+    ar = lang == "ar"
+
+    def tr(arabic, english):
+        return arabic if ar else english
+
+    st.markdown('<div class="section-title">' + tr(
+        "٥ · تحليل البيانات ورؤى النوتبوك", "5 · Data analysis & notebook insights") + '</div>',
+        unsafe_allow_html=True)
+    st.caption(tr(
+        "نفس رسومات ونتائج النوتبوك الأصلي، بجانب التوقعات. التحليل هنا للبيانات كاملة، وليس للعينة المدخلة فوق.",
+        "The original notebook's plots and results, alongside predictions. This analysis describes the full dataset, not the sample entered above."))
+    st.info(tr(
+        "مشروع تعليمي فقط، وليس أداة للتشخيص الطبي. نسب التوقع ليست تأكيدًا طبيًا.",
+        "Educational project only, not a medical diagnostic tool. Prediction scores are not medical confirmation."))
+    if not NOTEBOOK_PATH.exists() or not Path(DATA_PATH).exists():
+        st.warning(tr(
+            "لعرض التحليل، ضع Breast_Cancer.ipynb وbrca.csv في نفس مجلد app.py.",
+            "Keep Breast_Cancer.ipynb and brca.csv beside app.py to display the analysis."))
+        return
+    plots, tables = load_notebook_insights()
+    raw = load_analysis_data()
+    features = raw.drop(columns=["Unnamed: 0", "y"], errors="ignore")
+    encoded = raw["y"].map({"B": 0, "M": 1})
+    counts = raw["y"].value_counts()
+    a, b, c, d = st.columns(4)
+    a.metric(tr("العينات", "Samples"), len(raw))
+    b.metric(tr("الخواص الرقمية", "Numeric features"), features.shape[1])
+    c.metric(tr("القيم المفقودة", "Missing values"), int(raw.isna().sum().sum()))
+    d.metric(tr("الصفوف المكررة", "Duplicate rows"), int(raw.duplicated().sum()))
+    names = [tr("نظرة عامة", "Overview"), tr("توزيع الخواص", "Feature distributions"),
+             tr("الارتباطات", "Correlations"), tr("القيم المتطرفة", "Outliers"),
+             tr("تقييم الموديلات", "Model evaluation")]
+    selected = st.radio(tr("استكشف التحليل", "Explore the analysis"), range(len(names)),
+                        format_func=lambda i: names[i], horizontal=True, key="insights_view")
+
+    def heading(arabic, english):
+        st.subheader(tr(arabic, english))
+
+    def plot(index, arabic, english):
+        st.image(io.BytesIO(plots[index]), caption=tr(arabic, english), width="stretch")
+
+    def table(frame):
+        st.dataframe(frame, hide_index=True, width="stretch")
+
+    if selected == 0:
+        heading("توزيع التشخيص في البيانات", "Diagnosis distribution")
+        table(pd.DataFrame({tr("التشخيص", "Diagnosis"): [T["benign"], T["malignant"]],
+                            tr("العدد", "Count"): [int(counts.get("B", 0)), int(counts.get("M", 0))],
+                            tr("النسبة %", "Percentage %"): [round(counts.get("B", 0) / len(raw) * 100, 2),
+                                                              round(counts.get("M", 0) / len(raw) * 100, 2)]}))
+        plot(4, "الرسم الأصلي: B = حميد، M = خبيث", "Original plot: B = benign, M = malignant")
+        st.write(tr(
+            "البيانات فيها حالات حميدة أكثر من الخبيثة. لا توجد قيم مفقودة أو صفوف مكررة في ملف المشروع. عمود Unnamed: 0 هو فهرس، وليس من خواص الموديل.",
+            "Benign cases outnumber malignant cases. The project file has no missing values or duplicate rows. Unnamed: 0 is an index, not a model feature."))
+        with st.expander(tr("عينة من البيانات والإحصاء الوصفي", "Data preview & descriptive statistics")):
+            table(raw.drop(columns=["Unnamed: 0"], errors="ignore").head(10))
+            table(features.describe().rename_axis("Statistic").reset_index())
+            table(pd.DataFrame({tr("العمود", "Column"): raw.columns,
+                                tr("قيم مفقودة", "Missing"): raw.isna().sum().values,
+                                tr("نوع البيانات", "Data type"): raw.dtypes.astype(str).values}))
+    elif selected == 1:
+        heading("توزيع الـ30 خاصية رقمية", "Distributions of all 30 numeric features")
+        st.write(tr(
+            "نفس إعداد النوتبوك: 30 فئة لكل هيستوجرام. المقاييس مختلفة، وبعض التوزيعات لها ذيل طويل؛ لا تقارن ارتفاع أو نطاق خاصيتين كأن وحداتهما واحدة.",
+            "Same notebook setting: 30 bins per histogram. Feature scales differ and some distributions have long tails; do not treat different feature ranges as the same units."))
+        plot(6, "توزيعات الخواص الأصلية، افتح الصورة بملء الشاشة لقراءة التفاصيل", "Original feature histograms. Open the image fullscreen to inspect details.")
+    elif selected == 2:
+        heading("الارتباط بين الخواص", "Feature correlations")
+        plot(7, "مصفوفة ارتباط Pearson لجميع الخواص", "Pearson correlation matrix for all features")
+        corr = features.corr()
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        pairs = upper.stack().reset_index()
+        pairs.columns = ["Feature 1", "Feature 2", "Correlation"]
+        pairs = pairs[pairs["Correlation"].abs() > 0.90].sort_values("Correlation", key=abs, ascending=False)
+        st.write(tr("أزواج الخواص ذات |الارتباط| أكبر من 0.90، بدون تكرار:", "Feature pairs with |correlation| above 0.90, without duplicate pairs:"))
+        table(pairs.round(3))
+        heading("ارتباط الخواص بالتشخيص", "Feature correlation with diagnosis")
+        plot(9, "ترميز التشخيص للتحليل فقط: B=0 وM=1", "Diagnosis encoding for analysis only: B=0 and M=1")
+        target_corr = features.corrwith(encoded).sort_values(ascending=False, key=abs)
+        table(target_corr.rename("Correlation").rename_axis("Feature").reset_index().round(4))
+        st.caption(tr(
+            "الارتباط لا يثبت السببية، وليس أهمية الخاصية داخل الموديل. هذه علاقات وصفية على كامل البيانات، وليست نتائج اختبار على بيانات جديدة.",
+            "Correlation is not causation or model feature importance. These are descriptive relationships across the full dataset, not held-out predictive results."))
+    elif selected == 3:
+        heading("فحص القيم المتطرفة", "Outlier inspection")
+        plot(11, "Boxplots الأصلية لجميع الخواص", "Original boxplots for all features")
+        q1, q3 = features.quantile(0.25), features.quantile(0.75)
+        iqr = q3 - q1
+        outliers = ((features < q1 - 1.5 * iqr) | (features > q3 + 1.5 * iqr)).sum()
+        result = pd.DataFrame({"Feature": features.columns, "Outliers Count": outliers.values,
+                               "Outliers Percentage": (outliers / len(features) * 100).round(2).values})
+        table(result.sort_values("Outliers Count", ascending=False))
+        st.caption(tr(
+            "قاعدة النوتبوك: خارج Q1 − 1.5×IQR أو Q3 + 1.5×IQR. ده رصد وصفي، مش دليل إن القياس غلط. لم نحذف أي صف أو نغيّر الموديل بسبب هذا العرض.",
+            "Notebook rule: outside Q1 − 1.5×IQR or Q3 + 1.5×IQR. A flag does not prove a measurement is wrong. This display removes no rows and changes no model."))
+    else:
+        heading("مقارنة الموديلات في النوتبوك", "Notebook model comparison")
+        st.caption(tr(
+            "النتائج المحفوظة من النوتبوك، وليست إعادة تدريب داخل التطبيق. المقارنة هنا متوسط تحقق متقاطع من 5 طيات على 455 عينة تدريب، بترميز الخبيث = 1.",
+            "Saved notebook results, not app-time retraining. This comparison uses mean 5-fold cross-validation on 455 training samples, with malignant encoded as 1."))
+        plot(49, "مقارنة F1 للموديلات الـ12", "F1 comparison across the 12 models")
+        table(tables[48])
+        st.write(tr(
+            "Stacking B سجّل F1 = 96.75%، مقابل 96.71% للانحدار اللوجستي. الفارق صغير جدًا، وليس دليلًا على تفوق مهم إحصائيًا.",
+            "Stacking B recorded F1 = 96.75%, compared with 96.71% for Logistic Regression. The gap is tiny, not evidence of a statistically meaningful advantage."))
+        heading("اختبار الموديل النهائي على بيانات محجوزة", "Final model on the held-out test set")
+        st.caption(tr(
+            "114 عينة اختبار منفصلة. الأرقام التالية من النوتبوك الأصلي، وليست درجات التوقع للعينة الحالية.",
+            "114 separate test samples. The following numbers are from the original notebook, not prediction scores for the current input."))
+        for col, label, value in zip(st.columns(4), ["Accuracy", "Precision", "Recall", "F1"],
+                                     ["96.49%", "100.00%", "90.48%", "95.00%"]):
+            col.metric(label, value)
+        plot(46, "مصفوفة الالتباس للموديل النهائي، صفوف = الحقيقي وأعمدة = المتوقع", "Final model confusion matrix. Rows = actual, columns = predicted.")
+        st.warning(tr(
+            "في الاختبار: 72 حالة حميدة صحيحة، و38 خبيثة صحيحة، و4 حالات خبيثة صُنّفت حميدة، و0 إنذارات خبيثة خاطئة. وجود الحالات الأربع الفائتة يؤكد أن المشروع ليس للتشخيص الطبي.",
+            "Test results: 72 true benign, 38 true malignant, 4 malignant cases classified as benign, and 0 false malignant alerts. Those four missed cases reinforce that this project is not for medical diagnosis."))
+        with st.expander(tr("مصفوفات الالتباس لكل الموديلات", "Confusion matrices for all models")):
+            st.caption(tr(
+                "توقعات خارج الطية (OOF) على بيانات التدريب. ليست نفس مجموعة الاختبار في المصفوفة السابقة.",
+                "Out-of-fold predictions on the training set. These do not use the test set shown above."))
+            plot(51, "مصفوفات الموديلات الـ12 من النوتبوك", "The notebook's 12 model confusion matrices")
+        with st.expander(tr("تجارب البذور ووقت التدريب", "Random-seed experiments & training time")):
+            table(tables[39])
+            table(tables[40])
+            table(tables[41])
+            st.caption(tr(
+                "أزمنة التدريب من تشغيل النوتبوك على جهاز واحد، وليست قياسًا لسرعة التطبيق. تباين البذور من إعداد التجربة الأصلي.",
+                "Training times are from one notebook run on one machine, not an app speed benchmark. Seed variation follows the original experiment setup."))
+    st.caption(tr(
+        "المصدر: Breast_Cancer.ipynb وbrca.csv من نفس المشروع. الرسومات الأصلية تحتفظ بعناوين محاورها الإنجليزية. عرض التحليل لا يعيد تدريب الموديل ولا يغيّر التوقعات.",
+        "Source: Breast_Cancer.ipynb and brca.csv from this project. Original plots retain their English axis labels. Viewing analysis neither retrains the model nor changes predictions."))
+
+
+try:
+    render_notebook_insights()
+except (OSError, ValueError, KeyError, IndexError) as error:
+    st.warning("تعذّر تحميل تحليل النوتبوك. التوقعات بالأعلى مستقلة عنه. / Notebook insights could not load; predictions above are independent.")
+    st.caption(type(error).__name__)
+
+
 
 st.markdown(
     f'<div class="footer-note">{T["footer"]}</div>',
